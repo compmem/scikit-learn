@@ -342,6 +342,8 @@ def ward_tree(X, *, connectivity=None, n_clusters=None, return_distance=False):
     moments_2[:n_samples] = X
     inertia = np.empty(len(coord_row), dtype=np.float64, order="C")
     _hierarchical.compute_ward_dist(moments_1, moments_2, coord_row, coord_col, inertia)
+    # TODO: replace this with our ward dist
+
     inertia = list(zip(inertia, coord_row, coord_col))
     heapify(inertia)
 

@@ -10,13 +10,13 @@ from ..utils._typedefs cimport float64_t, intp_t, uint8_t
 # C++
 from cython.operator cimport dereference as deref, preincrement as inc
 from libcpp.map cimport map as cpp_map
-from libc.math cimport fmax, INFINITY
+from libc.math cimport fmax, INFINITY, log
 
 
 ###############################################################################
 # Utilities for computing the ward momentum
 
-def compute_ward_dist(
+def compute_ward_dist_euclidean(
     const float64_t[::1] m_1,
     const float64_t[:, ::1] m_2,
     const intp_t[::1] coord_row,
@@ -36,6 +36,63 @@ def compute_ward_dist(
         for j in range(n_features):
             pa += (m_2[row, j] / m_1[row] - m_2[col, j] / m_1[col]) ** 2
         res[i] = pa * n
+
+
+def compute_ward_dist_correlation(
+    const float64_t[::1] m_1,
+    const float64_t[:, ::1] m_2,
+    const intp_t[::1] coord_row,
+    const intp_t[::1] coord_col,
+    float64_t[::1] res
+    ):
+
+    cdef intp_t size_max = coord_row.shape[0]
+    cdef intp_t n_features = m_2.shape[1]
+    cdef intp_t i, j, row, col
+    cdef float64_t pa, n, corr, x_i, y_i, numerator, denominator, d
+    cdef float64_t sum_x, sum_y, sum_x_times_y, sum_x_squared, sum_y_squared
+
+    for i in range(size_max):
+        row = coord_row[i]
+        col = coord_col[i]
+        n = (m_1[row] * m_1[col]) / (m_1[row] + m_1[col])
+
+        # reset values
+        # TODO: it may make more sense to compute these outside
+        pa = 0.
+        sum_x = 0.0
+        sum_y = 0.0
+        sum_x_times_y = 0.0
+        sum_x_squared = 0.0
+        sum_y_squared = 0.0
+
+        for j in range(n_features):
+            # pull out the average values for that feature
+            x_i = m_2[row, j] / m_1[row]
+            y_i = m_2[col, j] / m_1[col]
+
+            # calculate the squared distance
+            pa += (x_i - y_i) ** 2
+
+            # perform steps for calculating correlation
+            sum_x += x_i
+            sum_y += y_i
+            sum_x_times_y += x_i * y_i
+            sum_x_squared += x_i ** 2
+            sum_y_squared += y_i ** 2
+
+        # calculate the correlation
+        numerator = (n_features * sum_x_times_y) - (sum_x * sum_y)
+        denominator = ((n_features * sum_x_squared - sum_x ** 2) * (n_features * sum_y_squared - sum_y ** 2)) ** 0.5
+        corr = numerator / denominator
+
+        # fishers z transform # TODO: what is this for? Seems unused.
+        z_corr = log((1 + corr) / (1 - corr)) / 2
+
+        # z transform
+        d = (1 - corr)
+
+        res[i] = (log((1 + d) / (1 - d)) / 2) * n
 
 
 ###############################################################################
