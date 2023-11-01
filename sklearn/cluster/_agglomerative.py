@@ -416,7 +416,9 @@ def ward_tree(X, *, connectivity=None, n_clusters=None, return_distance=False):
     },
     prefer_skip_nested_validation=True,
 )
-def ward_corr_tree(X, *, connectivity=None, n_clusters=None, min_corr=None, return_distance=False):
+def ward_corr_tree(
+    X, *, connectivity=None, n_clusters=None, min_corr=None, return_distance=False
+):
     """Ward clustering based on a Feature matrix.
 
     Recursively merges the pair of clusters that XXX TODO
@@ -447,9 +449,9 @@ def ward_corr_tree(X, *, connectivity=None, n_clusters=None, min_corr=None, retu
         the 'children' output is of limited use, and the 'parents' output should
         rather be used. This option is valid only when specifying a connectivity
         matrix.
-        
+
     min_corr: float, default=-1
-        The minimum correlation between clusters required to merge. If specified, 
+        The minimum correlation between clusters required to merge. If specified,
         ``n_clusters`` should be set to ``None``.
 
     return_distance : bool, default=False
@@ -538,7 +540,7 @@ def ward_corr_tree(X, *, connectivity=None, n_clusters=None, min_corr=None, retu
         n_nodes = 2 * n_samples - 1
     else:
         min_corr = -1
-        
+
         if n_clusters > n_samples:
             raise ValueError(
                 "Cannot provide more clusters than samples. "
@@ -573,7 +575,9 @@ def ward_corr_tree(X, *, connectivity=None, n_clusters=None, min_corr=None, retu
     moments_2 = np.zeros((n_nodes, n_features), order="C")
     moments_2[:n_samples] = X
     inertia = np.empty(len(coord_row), dtype=np.float64, order="C")
-    _hierarchical.compute_ward_corr(min_corr, moments_1, moments_2, coord_row, coord_col, inertia)
+    _hierarchical.compute_ward_corr(
+        min_corr, moments_1, moments_2, coord_row, coord_col, inertia
+    )
 
     inertia = list(zip(inertia, coord_row, coord_col))
     heapify(inertia)
@@ -619,7 +623,9 @@ def ward_corr_tree(X, *, connectivity=None, n_clusters=None, min_corr=None, retu
         n_additions = len(coord_row)
         ini = np.empty(n_additions, dtype=np.float64, order="C")
 
-        _hierarchical.compute_ward_corr(min_corr, moments_1, moments_2, coord_row, coord_col, ini)
+        _hierarchical.compute_ward_corr(
+            min_corr, moments_1, moments_2, coord_row, coord_col, ini
+        )
 
         # List comprehension is faster than a for loop
         [heappush(inertia, (ini[idx], k, coord_col[idx])) for idx in range(n_additions)]
@@ -1078,7 +1084,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         be ``None``, and ``compute_full_tree`` must be ``True``.
 
         .. versionadded:: 0.21
-        
+
     min_corr : float, default=None
         The correlation threshold at or below which clusters will not be merged.
         If not ``None``, ``n_clusters`` must be ``None``, ``distance_threshold`` must
@@ -1185,7 +1191,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         compute_full_tree="auto",
         linkage="ward",
         distance_threshold=None,
-        min_corr=None, 
+        min_corr=None,
         compute_distances=False,
     ):
         self.n_clusters = n_clusters
@@ -1257,16 +1263,24 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         elif self.metric is None:
             self._metric = "euclidean"
 
-        if not ((self.n_clusters is not None) + (self.distance_threshold is not None) + (self.min_corr is not None) == 1):
+        if not (
+            (self.n_clusters is not None)
+            + (self.distance_threshold is not None)
+            + (self.min_corr is not None)
+            == 1
+        ):
             raise ValueError(
                 "Exactly one of n_clusters, "
                 "distance_threshold, and min_corr has to be set, and the other "
                 "needs to be None."
             )
 
-        if (self.distance_threshold is not None or self.min_corr is not None) and not self.compute_full_tree:
+        if (
+            self.distance_threshold is not None or self.min_corr is not None
+        ) and not self.compute_full_tree:
             raise ValueError(
-                "compute_full_tree must be True if distance_threshold or min_corr is set."
+                "compute_full_tree must be True if distance_threshold or min_corr is"
+                " set."
             )
 
         if self.linkage == "ward" and self._metric != "euclidean":
@@ -1306,14 +1320,16 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         if self.linkage not in ["ward", "ward_corr"]:
             kwargs["linkage"] = self.linkage
             kwargs["affinity"] = self._metric
-        
+
         if self.linkage == "ward_corr":
             min_corr = self.min_corr if self.min_corr is not None else -1
             kwargs["min_corr"] = min_corr
 
         distance_threshold = self.distance_threshold
 
-        return_distance = (distance_threshold is not None or self.min_corr is not None) or self.compute_distances
+        return_distance = (
+            distance_threshold is not None or self.min_corr is not None
+        ) or self.compute_distances
 
         out = memory.cache(tree_builder)(
             X,
@@ -1334,10 +1350,8 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
                 np.count_nonzero(self.distances_ >= distance_threshold) + 1
             )
         elif self.min_corr is not None:
-            self.n_clusters_ = (
-                np.count_nonzero(self.distances_ <= min_corr) + 1
-            )
-            
+            self.n_clusters_ = np.count_nonzero(self.distances_ <= min_corr) + 1
+
         else:  # n_clusters is used
             self.n_clusters_ = self.n_clusters
 
