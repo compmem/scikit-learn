@@ -342,7 +342,6 @@ def ward_tree(X, *, connectivity=None, n_clusters=None, return_distance=False):
     moments_2[:n_samples] = X
     inertia = np.empty(len(coord_row), dtype=np.float64, order="C")
     _hierarchical.compute_ward_dist(moments_1, moments_2, coord_row, coord_col, inertia)
-    # TODO: replace this with our ward dist
 
     inertia = list(zip(inertia, coord_row, coord_col))
     heapify(inertia)
@@ -389,6 +388,238 @@ def ward_tree(X, *, connectivity=None, n_clusters=None, return_distance=False):
         ini = np.empty(n_additions, dtype=np.float64, order="C")
 
         _hierarchical.compute_ward_dist(moments_1, moments_2, coord_row, coord_col, ini)
+
+        # List comprehension is faster than a for loop
+        [heappush(inertia, (ini[idx], k, coord_col[idx])) for idx in range(n_additions)]
+
+    # Separate leaves in children (empty lists up to now)
+    n_leaves = n_samples
+    # sort children to get consistent output with unstructured version
+    children = [c[::-1] for c in children]
+    children = np.array(children)  # return numpy array for efficient caching
+
+    if return_distance:
+        # 2 is scaling factor to compare w/ unstructured version
+        distances = np.sqrt(2.0 * distances)
+        return children, n_connected_components, n_leaves, parent, distances
+    else:
+        return children, n_connected_components, n_leaves, parent
+
+
+@validate_params(
+    {
+        "X": ["array-like"],
+        "connectivity": ["array-like", "sparse matrix", None],
+        "n_clusters": [Interval(Integral, 1, None, closed="left"), None],
+        "min_corr": [Interval(Real, -1, 1, closed="both"), None],
+        "return_distance": ["boolean"],
+    },
+    prefer_skip_nested_validation=True,
+)
+def ward_corr_tree(X, *, connectivity=None, n_clusters=None, min_corr=None, return_distance=False):
+    """Ward clustering based on a Feature matrix.
+
+    Recursively merges the pair of clusters that XXX TODO
+
+    The inertia matrix uses a Heapq-based representation.
+
+    This is the structured version, that takes into account some topological
+    structure between samples.
+
+    Read more in the :ref:`User Guide <hierarchical_clustering>`.
+
+    Parameters
+    ----------
+    X : array-like of shape (n_samples, n_features)
+        Feature matrix representing `n_samples` samples to be clustered.
+
+    connectivity : {array-like, sparse matrix}, default=None
+        Connectivity matrix. Defines for each sample the neighboring samples
+        following a given structure of the data. The matrix is assumed to
+        be symmetric and only the upper triangular half is used.
+        Default is None, i.e, the Ward algorithm is unstructured.
+
+    n_clusters : int, default=None
+        `n_clusters` should be less than `n_samples`.  Stop early the
+        construction of the tree at `n_clusters.` This is useful to decrease
+        computation time if the number of clusters is not small compared to the
+        number of samples. In this case, the complete tree is not computed, thus
+        the 'children' output is of limited use, and the 'parents' output should
+        rather be used. This option is valid only when specifying a connectivity
+        matrix.
+        
+    min_corr: float, default=-1
+        The minimum correlation between clusters required to merge. If specified, 
+        ``n_clusters`` should be set to ``None``.
+
+    return_distance : bool, default=False
+        If `True`, return the distance between the clusters.
+
+    Returns
+    -------
+    children : ndarray of shape (n_nodes-1, 2)
+        The children of each non-leaf node. Values less than `n_samples`
+        correspond to leaves of the tree which are the original samples.
+        A node `i` greater than or equal to `n_samples` is a non-leaf
+        node and has children `children_[i - n_samples]`. Alternatively
+        at the i-th iteration, children[i][0] and children[i][1]
+        are merged to form node `n_samples + i`.
+
+    n_connected_components : int
+        The number of connected components in the graph.
+
+    n_leaves : int
+        The number of leaves in the tree.
+
+    parents : ndarray of shape (n_nodes,) or None
+        The parent of each node. Only returned when a connectivity matrix
+        is specified, elsewhere 'None' is returned.
+
+    distances : ndarray of shape (n_nodes-1,)
+        Only returned if `return_distance` is set to `True` (for compatibility).
+        The distances between the centers of the nodes. `distances[i]`
+        corresponds to a weighted Euclidean distance between
+        the nodes `children[i, 1]` and `children[i, 2]`. If the nodes refer to
+        leaves of the tree, then `distances[i]` is their unweighted Euclidean
+        distance. Distances are updated in the following way
+        (from scipy.hierarchy.linkage):
+
+        The new entry :math:`d(u,v)` is computed as follows,
+
+        .. math::
+
+           d(u,v) = \\sqrt{\\frac{|v|+|s|}
+                               {T}d(v,s)^2
+                        + \\frac{|v|+|t|}
+                               {T}d(v,t)^2
+                        - \\frac{|v|}
+                               {T}d(s,t)^2}
+
+        where :math:`u` is the newly joined cluster consisting of
+        clusters :math:`s` and :math:`t`, :math:`v` is an unused
+        cluster in the forest, :math:`T=|v|+|s|+|t|`, and
+        :math:`|*|` is the cardinality of its argument. This is also
+        known as the incremental algorithm.
+    """
+    X = np.asarray(X)
+    if X.ndim == 1:
+        X = np.reshape(X, (-1, 1))
+    n_samples, n_features = X.shape
+
+    if connectivity is None:
+        from scipy.cluster import hierarchy  # imports PIL
+
+        if n_clusters is not None:
+            warnings.warn(
+                (
+                    "Partial build of the tree is implemented "
+                    "only for structured clustering (i.e. with "
+                    "explicit connectivity). The algorithm "
+                    "will build the full tree and only "
+                    "retain the lower branches required "
+                    "for the specified number of clusters"
+                ),
+                stacklevel=2,
+            )
+        X = np.require(X, requirements="W")
+        out = hierarchy.ward(X)
+        children_ = out[:, :2].astype(np.intp)
+
+        if return_distance:
+            distances = out[:, 2]
+            return children_, 1, n_samples, None, distances
+        else:
+            return children_, 1, n_samples, None
+
+    connectivity, n_connected_components = _fix_connectivity(
+        X, connectivity, affinity="euclidean"
+    )
+    if n_clusters is None:
+        n_nodes = 2 * n_samples - 1
+    else:
+        min_corr = -1
+        
+        if n_clusters > n_samples:
+            raise ValueError(
+                "Cannot provide more clusters than samples. "
+                "%i n_clusters was asked, and there are %i "
+                "samples." % (n_clusters, n_samples)
+            )
+        n_nodes = 2 * n_samples - n_clusters
+
+    # create inertia matrix
+    coord_row = []
+    coord_col = []
+    A = []
+    for ind, row in enumerate(connectivity.rows):
+        A.append(row)
+        # We keep only the upper triangular for the moments
+        # Generator expressions are faster than arrays on the following
+        row = [i for i in row if i < ind]
+        coord_row.extend(
+            len(row)
+            * [
+                ind,
+            ]
+        )
+        coord_col.extend(row)
+
+    coord_row = np.array(coord_row, dtype=np.intp, order="C")
+    coord_col = np.array(coord_col, dtype=np.intp, order="C")
+
+    # build moments as a list
+    moments_1 = np.zeros(n_nodes, order="C")
+    moments_1[:n_samples] = 1
+    moments_2 = np.zeros((n_nodes, n_features), order="C")
+    moments_2[:n_samples] = X
+    inertia = np.empty(len(coord_row), dtype=np.float64, order="C")
+    _hierarchical.compute_ward_corr(min_corr, moments_1, moments_2, coord_row, coord_col, inertia)
+
+    inertia = list(zip(inertia, coord_row, coord_col))
+    heapify(inertia)
+
+    # prepare the main fields
+    parent = np.arange(n_nodes, dtype=np.intp)
+    used_node = np.ones(n_nodes, dtype=bool)
+    children = []
+    if return_distance:
+        distances = np.empty(n_nodes - n_samples)
+
+    not_visited = np.empty(n_nodes, dtype=bool, order="C")
+
+    # recursive merge loop
+    for k in range(n_samples, n_nodes):
+        # identify the merge
+        while True:
+            inert, i, j = heappop(inertia)
+            if used_node[i] and used_node[j]:
+                break
+        parent[i], parent[j] = k, k
+        children.append((i, j))
+        used_node[i] = used_node[j] = False
+        if return_distance:  # store inertia value
+            distances[k - n_samples] = inert
+
+        # update the moments
+        moments_1[k] = moments_1[i] + moments_1[j]
+        moments_2[k] = moments_2[i] + moments_2[j]
+
+        # update the structure matrix A and the inertia matrix
+        coord_col = []
+        not_visited.fill(1)
+        not_visited[k] = 0
+        _hierarchical._get_parents(A[i], coord_col, parent, not_visited)
+        _hierarchical._get_parents(A[j], coord_col, parent, not_visited)
+        # List comprehension is faster than a for loop
+        [A[col].append(k) for col in coord_col]
+        A.append(coord_col)
+        coord_col = np.array(coord_col, dtype=np.intp, order="C")
+        coord_row = np.empty(coord_col.shape, dtype=np.intp, order="C")
+        coord_row.fill(k)
+        n_additions = len(coord_row)
+        ini = np.empty(n_additions, dtype=np.float64, order="C")
+
+        _hierarchical.compute_ward_corr(min_corr, moments_1, moments_2, coord_row, coord_col, ini)
 
         # List comprehension is faster than a for loop
         [heappush(inertia, (ini[idx], k, coord_col[idx])) for idx in range(n_additions)]
@@ -702,6 +933,7 @@ def _single_linkage(*args, **kwargs):
 
 _TREE_BUILDERS = dict(
     ward=ward_tree,
+    ward_corr=ward_corr_tree,
     complete=_complete_linkage,
     average=_average_linkage,
     single=_single_linkage,
@@ -823,12 +1055,13 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         is inferior to the maximum between 100 or `0.02 * n_samples`.
         Otherwise, "auto" is equivalent to `False`.
 
-    linkage : {'ward', 'complete', 'average', 'single'}, default='ward'
+    linkage : {'ward', 'ward_corr', 'complete', 'average', 'single'}, default='ward'
         Which linkage criterion to use. The linkage criterion determines which
         distance to use between sets of observation. The algorithm will merge
         the pairs of cluster that minimize this criterion.
 
         - 'ward' minimizes the variance of the clusters being merged.
+        - 'ward_corr' maximizes the correlation of the clusters being merged.
         - 'average' uses the average of the distances of each observation of
           the two sets.
         - 'complete' or 'maximum' linkage uses the maximum distances between
@@ -841,10 +1074,15 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
 
     distance_threshold : float, default=None
         The linkage distance threshold at or above which clusters will not be
-        merged. If not ``None``, ``n_clusters`` must be ``None`` and
-        ``compute_full_tree`` must be ``True``.
+        merged. If not ``None``, ``n_clusters`` must be ``None``, ``min_corr`` must
+        be ``None``, and ``compute_full_tree`` must be ``True``.
 
         .. versionadded:: 0.21
+        
+    min_corr : float, default=None
+        The correlation threshold at or below which clusters will not be merged.
+        If not ``None``, ``n_clusters`` must be ``None``, ``distance_threshold`` must
+        be ``None, and ``compute_full_tree`` must be ``True``.
 
     compute_distances : bool, default=False
         Computes distances between clusters even if `distance_threshold` is not
@@ -932,6 +1170,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         "compute_full_tree": [StrOptions({"auto"}), "boolean"],
         "linkage": [StrOptions(set(_TREE_BUILDERS.keys()))],
         "distance_threshold": [Interval(Real, 0, None, closed="left"), None],
+        "min_corr": [Interval(Real, -1, 1, closed="both"), None],
         "compute_distances": ["boolean"],
     }
 
@@ -946,6 +1185,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         compute_full_tree="auto",
         linkage="ward",
         distance_threshold=None,
+        min_corr=None, 
         compute_distances=False,
     ):
         self.n_clusters = n_clusters
@@ -957,6 +1197,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         self.affinity = affinity
         self.metric = metric
         self.compute_distances = compute_distances
+        self.min_corr = min_corr
 
     @_fit_context(prefer_skip_nested_validation=True)
     def fit(self, X, y=None):
@@ -1016,16 +1257,16 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         elif self.metric is None:
             self._metric = "euclidean"
 
-        if not ((self.n_clusters is None) ^ (self.distance_threshold is None)):
+        if not ((self.n_clusters is not None) + (self.distance_threshold is not None) + (self.min_corr is not None) == 1):
             raise ValueError(
-                "Exactly one of n_clusters and "
-                "distance_threshold has to be set, and the other "
+                "Exactly one of n_clusters, "
+                "distance_threshold, and min_corr has to be set, and the other "
                 "needs to be None."
             )
 
-        if self.distance_threshold is not None and not self.compute_full_tree:
+        if (self.distance_threshold is not None or self.min_corr is not None) and not self.compute_full_tree:
             raise ValueError(
-                "compute_full_tree must be True if distance_threshold is set."
+                "compute_full_tree must be True if distance_threshold or min_corr is set."
             )
 
         if self.linkage == "ward" and self._metric != "euclidean":
@@ -1062,13 +1303,17 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
 
         # Construct the tree
         kwargs = {}
-        if self.linkage != "ward":
+        if self.linkage not in ["ward", "ward_corr"]:
             kwargs["linkage"] = self.linkage
             kwargs["affinity"] = self._metric
+        
+        if self.linkage == "ward_corr":
+            min_corr = self.min_corr if self.min_corr is not None else -1
+            kwargs["min_corr"] = min_corr
 
         distance_threshold = self.distance_threshold
 
-        return_distance = (distance_threshold is not None) or self.compute_distances
+        return_distance = (distance_threshold is not None or self.min_corr is not None) or self.compute_distances
 
         out = memory.cache(tree_builder)(
             X,
@@ -1088,6 +1333,11 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
             self.n_clusters_ = (
                 np.count_nonzero(self.distances_ >= distance_threshold) + 1
             )
+        elif self.min_corr is not None:
+            self.n_clusters_ = (
+                np.count_nonzero(self.distances_ <= min_corr) + 1
+            )
+            
         else:  # n_clusters is used
             self.n_clusters_ = self.n_clusters
 

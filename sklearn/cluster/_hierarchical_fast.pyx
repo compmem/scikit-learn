@@ -16,7 +16,7 @@ from libc.math cimport fmax, INFINITY, log
 ###############################################################################
 # Utilities for computing the ward momentum
 
-def compute_ward_dist_euclidean(
+def compute_ward_dist(
     const float64_t[::1] m_1,
     const float64_t[:, ::1] m_2,
     const intp_t[::1] coord_row,
@@ -38,7 +38,8 @@ def compute_ward_dist_euclidean(
         res[i] = pa * n
 
 
-def compute_ward_dist_correlation(
+def compute_ward_corr(
+    const float64_t min_corr,
     const float64_t[::1] m_1,
     const float64_t[:, ::1] m_2,
     const intp_t[::1] coord_row,
@@ -58,7 +59,6 @@ def compute_ward_dist_correlation(
         n = (m_1[row] * m_1[col]) / (m_1[row] + m_1[col])
 
         # reset values
-        # TODO: it may make more sense to compute these outside
         pa = 0.
         sum_x = 0.0
         sum_y = 0.0
@@ -86,14 +86,14 @@ def compute_ward_dist_correlation(
         denominator = ((n_features * sum_x_squared - sum_x ** 2) * (n_features * sum_y_squared - sum_y ** 2)) ** 0.5
         corr = numerator / denominator
 
-        # fishers z transform # TODO: what is this for? Seems unused.
-        z_corr = log((1 + corr) / (1 - corr)) / 2
-
-        # z transform
+        # fisher's z transform
         d = (1 - corr)
 
-        res[i] = (log((1 + d) / (1 - d)) / 2) * n
-
+        if corr > min_corr:
+            res[i] = (log((1 + d) / (1 - d)) / 2) * n
+        else:
+            # handled by outer selection threshold
+            res[i] = INFINITY
 
 ###############################################################################
 # Utilities for cutting and exploring a hierarchical tree
