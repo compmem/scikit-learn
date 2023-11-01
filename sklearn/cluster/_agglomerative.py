@@ -406,103 +406,14 @@ def ward_tree(X, *, connectivity=None, n_clusters=None, return_distance=False):
         return children, n_connected_components, n_leaves, parent
 
 
-@validate_params(
-    {
-        "X": ["array-like"],
-        "connectivity": ["array-like", "sparse matrix", None],
-        "n_clusters": [Interval(Integral, 1, None, closed="left"), None],
-        "min_corr": [Interval(Real, -1, 1, closed="both"), None],
-        "return_distance": ["boolean"],
-    },
-    prefer_skip_nested_validation=True,
-)
-def ward_corr_tree(
+def _ward_corr_tree(
     X, *, connectivity=None, n_clusters=None, min_corr=None, return_distance=False
 ):
-    """Ward clustering based on a Feature matrix.
-
-    Recursively merges the pair of clusters that XXX TODO
-
-    The inertia matrix uses a Heapq-based representation.
-
-    This is the structured version, that takes into account some topological
-    structure between samples.
-
-    Read more in the :ref:`User Guide <hierarchical_clustering>`.
-
-    Parameters
-    ----------
-    X : array-like of shape (n_samples, n_features)
-        Feature matrix representing `n_samples` samples to be clustered.
-
-    connectivity : {array-like, sparse matrix}, default=None
-        Connectivity matrix. Defines for each sample the neighboring samples
-        following a given structure of the data. The matrix is assumed to
-        be symmetric and only the upper triangular half is used.
-        Default is None, i.e, the Ward algorithm is unstructured.
-
-    n_clusters : int, default=None
-        `n_clusters` should be less than `n_samples`.  Stop early the
-        construction of the tree at `n_clusters.` This is useful to decrease
-        computation time if the number of clusters is not small compared to the
-        number of samples. In this case, the complete tree is not computed, thus
-        the 'children' output is of limited use, and the 'parents' output should
-        rather be used. This option is valid only when specifying a connectivity
-        matrix.
-
-    min_corr: float, default=-1
-        The minimum correlation between clusters required to merge. If specified,
-        ``n_clusters`` should be set to ``None``.
-
-    return_distance : bool, default=False
-        If `True`, return the distance between the clusters.
-
-    Returns
-    -------
-    children : ndarray of shape (n_nodes-1, 2)
-        The children of each non-leaf node. Values less than `n_samples`
-        correspond to leaves of the tree which are the original samples.
-        A node `i` greater than or equal to `n_samples` is a non-leaf
-        node and has children `children_[i - n_samples]`. Alternatively
-        at the i-th iteration, children[i][0] and children[i][1]
-        are merged to form node `n_samples + i`.
-
-    n_connected_components : int
-        The number of connected components in the graph.
-
-    n_leaves : int
-        The number of leaves in the tree.
-
-    parents : ndarray of shape (n_nodes,) or None
-        The parent of each node. Only returned when a connectivity matrix
-        is specified, elsewhere 'None' is returned.
-
-    distances : ndarray of shape (n_nodes-1,)
-        Only returned if `return_distance` is set to `True` (for compatibility).
-        The distances between the centers of the nodes. `distances[i]`
-        corresponds to a weighted Euclidean distance between
-        the nodes `children[i, 1]` and `children[i, 2]`. If the nodes refer to
-        leaves of the tree, then `distances[i]` is their unweighted Euclidean
-        distance. Distances are updated in the following way
-        (from scipy.hierarchy.linkage):
-
-        The new entry :math:`d(u,v)` is computed as follows,
-
-        .. math::
-
-           d(u,v) = \\sqrt{\\frac{|v|+|s|}
-                               {T}d(v,s)^2
-                        + \\frac{|v|+|t|}
-                               {T}d(v,t)^2
-                        - \\frac{|v|}
-                               {T}d(s,t)^2}
-
-        where :math:`u` is the newly joined cluster consisting of
-        clusters :math:`s` and :math:`t`, :math:`v` is an unused
-        cluster in the forest, :math:`T=|v|+|s|+|t|`, and
-        :math:`|*|` is the cardinality of its argument. This is also
-        known as the incremental algorithm.
     """
+    Ward_tree where the distance metric is correlation instead of
+    euclidean distance.
+    """
+    
     X = np.asarray(X)
     if X.ndim == 1:
         X = np.reshape(X, (-1, 1))
@@ -536,11 +447,12 @@ def ward_corr_tree(
     connectivity, n_connected_components = _fix_connectivity(
         X, connectivity, affinity="euclidean"
     )
+    if min_corr is None:
+        min_corr = -1
+    
     if n_clusters is None:
         n_nodes = 2 * n_samples - 1
     else:
-        min_corr = -1
-
         if n_clusters > n_samples:
             raise ValueError(
                 "Cannot provide more clusters than samples. "
@@ -939,7 +851,7 @@ def _single_linkage(*args, **kwargs):
 
 _TREE_BUILDERS = dict(
     ward=ward_tree,
-    ward_corr=ward_corr_tree,
+    ward_corr=_ward_corr_tree,
     complete=_complete_linkage,
     average=_average_linkage,
     single=_single_linkage,
@@ -1067,7 +979,8 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         the pairs of cluster that minimize this criterion.
 
         - 'ward' minimizes the variance of the clusters being merged.
-        - 'ward_corr' maximizes the correlation of the clusters being merged.
+        - 'ward_corr' minimizes the variance of the clusters being merged, but uses Fisher's
+          z correlation as the distance metric instead of euclidean distance. 
         - 'average' uses the average of the distances of each observation of
           the two sets.
         - 'complete' or 'maximum' linkage uses the maximum distances between
@@ -1088,7 +1001,8 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
     min_corr : float, default=None
         The correlation threshold at or below which clusters will not be merged.
         If not ``None``, ``n_clusters`` must be ``None``, ``distance_threshold`` must
-        be ``None, and ``compute_full_tree`` must be ``True``.
+        be ``None, and ``compute_full_tree`` must be ``True``. Only valid with
+        linkage = 'ward_corr'.
 
     compute_distances : bool, default=False
         Computes distances between clusters even if `distance_threshold` is not

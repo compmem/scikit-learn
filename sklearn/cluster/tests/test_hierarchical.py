@@ -345,7 +345,10 @@ def test_sparse_scikit_vs_scipy(global_random_seed):
             X -= 4.0 * np.arange(n)[:, np.newaxis]
             X -= X.mean(axis=1)[:, np.newaxis]
 
-            out = hierarchy.linkage(X, method=linkage)
+            if linkage == 'ward_corr':
+                continue
+            else:
+                out = hierarchy.linkage(X, method=linkage)
 
             children_ = out[:, :2].astype(int, copy=False)
             children, _, n_leaves, _ = _TREE_BUILDERS[linkage](
