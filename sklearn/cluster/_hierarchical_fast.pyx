@@ -12,6 +12,7 @@ from cython.operator cimport dereference as deref, preincrement as inc
 from libcpp.map cimport map as cpp_map
 from libc.math cimport fmax, INFINITY, log
 
+from libc.stdio cimport printf
 
 ###############################################################################
 # Utilities for computing the ward momentum

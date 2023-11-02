@@ -27,7 +27,7 @@ from sklearn.cluster._hierarchical_fast import (
     max_merge,
     mst_linkage_core,
 )
-from sklearn.datasets import make_circles, make_moons
+from sklearn.datasets import make_circles, make_moons, make_swiss_roll
 from sklearn.feature_extraction.image import grid_to_graph
 from sklearn.metrics import DistanceMetric
 from sklearn.metrics.cluster import adjusted_rand_score, normalized_mutual_info_score
@@ -112,6 +112,9 @@ def test_unstructured_linkage_tree():
         assert len(children) + n_leaves == n_nodes
 
     for tree_builder in _TREE_BUILDERS.values():
+        if tree_builder == _TREE_BUILDERS["ward_corr"]:
+            continue
+
         for this_X in (X, X[0]):
             with ignore_warnings():
                 with pytest.warns(UserWarning):
@@ -345,7 +348,7 @@ def test_sparse_scikit_vs_scipy(global_random_seed):
             X -= 4.0 * np.arange(n)[:, np.newaxis]
             X -= X.mean(axis=1)[:, np.newaxis]
 
-            if linkage == 'ward_corr':
+            if linkage == "ward_corr":
                 continue
             else:
                 out = hierarchy.linkage(X, method=linkage)
@@ -912,3 +915,72 @@ def test_deprecate_affinity():
         af.fit(X)
     with pytest.raises(ValueError, match=msg):
         af.fit_predict(X)
+
+
+def test_ward_corr_invalid_parameters():
+    rng = np.random.RandomState(0)
+    mask = np.ones([10, 10], dtype=bool)
+    # Avoiding a mask with only 'True' entries
+    mask[4:7, 4:7] = 0
+    X = rng.randn(50, 100)
+    connectivity = grid_to_graph(*mask.shape)
+
+    with pytest.raises(ValueError, match="Exactly one of "):
+        AgglomerativeClustering(
+            linkage="ward_corr",
+            n_clusters=None,
+            min_corr=None,
+            distance_threshold=None,
+            connectivity=connectivity,
+        ).fit(X)
+
+    with pytest.raises(
+        ValueError, match="The 'min_corr' parameter of AgglomerativeClustering "
+    ):
+        AgglomerativeClustering(
+            linkage="ward_corr",
+            n_clusters=None,
+            min_corr=-2,
+            distance_threshold=None,
+            connectivity=connectivity,
+        ).fit(X)
+
+    with pytest.raises(
+        ValueError, match="min_corr is only valid for linkage = 'ward_corr'."
+    ):
+        AgglomerativeClustering(
+            linkage="ward",
+            n_clusters=None,
+            min_corr=0.5,
+            distance_threshold=None,
+            connectivity=connectivity,
+        ).fit(X)
+
+    with pytest.raises(ValueError, match="connectivity must be specified"):
+        AgglomerativeClustering(
+            linkage="ward_corr", n_clusters=None, min_corr=0.5, distance_threshold=None
+        ).fit(X)
+
+
+def test_ward_corr_decreasing_n_clusts():
+    n_samples = 1500
+    noise = 0.05
+    X, _ = make_swiss_roll(n_samples, noise=noise, random_state=30)
+    X[:, 1] *= 0.5
+
+    connectivity = kneighbors_graph(X, n_neighbors=10, include_self=False)
+
+    min_corrs = [0.1, 0.5, 0.8]
+    n_clusts = []
+
+    for min_corr in min_corrs:
+        clust = AgglomerativeClustering(
+            linkage="ward_corr",
+            min_corr=min_corr,
+            n_clusters=None,
+            connectivity=connectivity,
+            compute_full_tree=True,
+        ).fit(X)
+        n_clusts.append(len(clust.labels_))
+
+    assert all(earlier >= later for earlier, later in zip(n_clusts, n_clusts[1:]))

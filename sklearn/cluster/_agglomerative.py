@@ -407,49 +407,23 @@ def ward_tree(X, *, connectivity=None, n_clusters=None, return_distance=False):
 
 
 def _ward_corr_tree(
-    X, *, connectivity=None, n_clusters=None, min_corr=None, return_distance=False
+    X, connectivity, n_clusters=None, min_corr=None, return_distance=False
 ):
     """
     Ward_tree where the distance metric is correlation instead of
-    euclidean distance.
+    euclidean distance. Does not support unstructured data.
     """
-    
     X = np.asarray(X)
     if X.ndim == 1:
         X = np.reshape(X, (-1, 1))
     n_samples, n_features = X.shape
-
-    if connectivity is None:
-        from scipy.cluster import hierarchy  # imports PIL
-
-        if n_clusters is not None:
-            warnings.warn(
-                (
-                    "Partial build of the tree is implemented "
-                    "only for structured clustering (i.e. with "
-                    "explicit connectivity). The algorithm "
-                    "will build the full tree and only "
-                    "retain the lower branches required "
-                    "for the specified number of clusters"
-                ),
-                stacklevel=2,
-            )
-        X = np.require(X, requirements="W")
-        out = hierarchy.ward(X)
-        children_ = out[:, :2].astype(np.intp)
-
-        if return_distance:
-            distances = out[:, 2]
-            return children_, 1, n_samples, None, distances
-        else:
-            return children_, 1, n_samples, None
 
     connectivity, n_connected_components = _fix_connectivity(
         X, connectivity, affinity="euclidean"
     )
     if min_corr is None:
         min_corr = -1
-    
+
     if n_clusters is None:
         n_nodes = 2 * n_samples - 1
     else:
@@ -980,7 +954,8 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
 
         - 'ward' minimizes the variance of the clusters being merged.
         - 'ward_corr' minimizes the variance of the clusters being merged, but uses Fisher's
-          z correlation as the distance metric instead of euclidean distance. 
+          z correlation as the distance metric instead of euclidean distance. Only valid
+          for structured data (requires ``connectivity`` to be set.)
         - 'average' uses the average of the distances of each observation of
           the two sets.
         - 'complete' or 'maximum' linkage uses the maximum distances between
@@ -999,7 +974,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         .. versionadded:: 0.21
 
     min_corr : float, default=None
-        The correlation threshold at or below which clusters will not be merged.
+        The Pearson correlation threshold at or below which clusters will not be merged.
         If not ``None``, ``n_clusters`` must be ``None``, ``distance_threshold`` must
         be ``None, and ``compute_full_tree`` must be ``True``. Only valid with
         linkage = 'ward_corr'.
@@ -1203,6 +1178,12 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
                 "work with euclidean distances."
             )
 
+        if self.linkage != "ward_corr" and self.min_corr is not None:
+            raise ValueError("min_corr is only valid for linkage = 'ward_corr'.")
+
+        if self.linkage == "ward_corr" and self.connectivity is None:
+            raise ValueError("connectivity must be specified if linkage = 'ward_corr'.")
+
         tree_builder = _TREE_BUILDERS[self.linkage]
 
         connectivity = self.connectivity
@@ -1218,7 +1199,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
         if self.connectivity is None:
             compute_full_tree = True
         if compute_full_tree == "auto":
-            if self.distance_threshold is not None:
+            if self.distance_threshold is not None or self.min_corr is not None:
                 compute_full_tree = True
             else:
                 # Early stopping is likely to give a speed up only for
@@ -1264,7 +1245,13 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
                 np.count_nonzero(self.distances_ >= distance_threshold) + 1
             )
         elif self.min_corr is not None:
-            self.n_clusters_ = np.count_nonzero(self.distances_ <= min_corr) + 1
+            self.n_clusters_ = 0
+
+            for dist in reversed(self.distances_):
+                if dist != np.Inf:
+                    break
+                else:
+                    self.n_clusters_ += 1
 
         else:  # n_clusters is used
             self.n_clusters_ = self.n_clusters
