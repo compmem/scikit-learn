@@ -422,7 +422,7 @@ def _ward_corr_tree(
         X, connectivity, affinity="euclidean"
     )
     if min_corr is None:
-        min_corr = -1
+        min_corr = -2
 
     if n_clusters is None:
         n_nodes = 2 * n_samples - 1
@@ -1245,7 +1245,7 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
                 np.count_nonzero(self.distances_ >= distance_threshold) + 1
             )
         elif self.min_corr is not None:
-            self.n_clusters_ = 0
+            self.n_clusters_ = 1
 
             for dist in reversed(self.distances_):
                 if dist != np.Inf:
