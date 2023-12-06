@@ -903,3 +903,75 @@ def test_deprecation_warning_metric_None(Agglomeration):
     warn_msg = "`metric=None` is deprecated in version 1.4 and will be removed"
     with pytest.warns(FutureWarning, match=warn_msg):
         Agglomeration(metric=None).fit(X)
+
+
+def test_ward_corr_invalid_parameters():
+    rng = np.random.RandomState(0)
+    mask = np.ones([10, 10], dtype=bool)
+    # Avoiding a mask with only 'True' entries
+    mask[4:7, 4:7] = 0
+    X = rng.randn(50, 100)
+    connectivity = grid_to_graph(*mask.shape)
+
+    with pytest.raises(ValueError, match="Exactly one of "):
+        AgglomerativeClustering(
+            linkage="ward_corr",
+            n_clusters=None,
+            min_corr=None,
+            distance_threshold=None,
+            connectivity=connectivity,
+        ).fit(X)
+
+    with pytest.raises(
+        ValueError, match="The 'min_corr' parameter of AgglomerativeClustering "
+    ):
+        AgglomerativeClustering(
+            linkage="ward_corr",
+            n_clusters=None,
+            min_corr=-2,
+            distance_threshold=None,
+            connectivity=connectivity,
+        ).fit(X)
+
+    with pytest.raises(
+        ValueError, match="min_corr is only valid for linkage = 'ward_corr'."
+    ):
+        AgglomerativeClustering(
+            linkage="ward",
+            n_clusters=None,
+            min_corr=0.5,
+            distance_threshold=None,
+            connectivity=connectivity,
+        ).fit(X)
+
+    with pytest.raises(ValueError, match="connectivity must be specified"):
+        AgglomerativeClustering(
+            linkage="ward_corr", n_clusters=None, min_corr=0.5, distance_threshold=None
+        ).fit(X)
+
+
+def test_ward_corr_min_corrs():
+    rng = np.random.RandomState(0)
+    X = rng.randn(100, 10)
+    connectivity = np.ones((100, 100))
+
+    for min_corr in [-1, 0, 0.3, 0.5, 1]:
+        clust = AgglomerativeClustering(
+            linkage="ward_corr",
+            min_corr=min_corr,
+            n_clusters=None,  # 100,
+            connectivity=connectivity,
+            compute_full_tree=True,
+        ).fit(X)
+
+        centroids = np.zeros((len(np.unique(clust.labels_)), 10))
+
+        for i, label in enumerate(np.unique(clust.labels_)):
+            centroids[i] = np.mean(X[clust.labels_ == label], axis=0)
+
+            if min_corr == -1:
+                assert len(np.unique(clust.labels_)) == 1
+            else:
+                # all final clusters should not have a correlation larger
+                # than min_corr (otherwise, we would have clustered them)
+                assert np.sum(np.tril(np.corrcoef(centroids), k=-1) > min_corr) == 0
