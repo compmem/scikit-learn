@@ -27,7 +27,7 @@ from sklearn.cluster._hierarchical_fast import (
     max_merge,
     mst_linkage_core,
 )
-from sklearn.datasets import make_circles, make_moons, make_swiss_roll
+from sklearn.datasets import make_circles, make_moons
 from sklearn.feature_extraction.image import grid_to_graph
 from sklearn.metrics import DistanceMetric
 from sklearn.metrics.cluster import adjusted_rand_score, normalized_mutual_info_score
@@ -855,7 +855,7 @@ def test_invalid_shape_precomputed_dist_matrix():
         AgglomerativeClustering(metric="precomputed", linkage="complete").fit(X)
 
 
-def test_precomputed_connectivity_affinity_with_2_connected_components():
+def test_precomputed_connectivity_metric_with_2_connected_components():
     """Check that connecting components works when connectivity and
     affinity are both precomputed and the number of connected components is
     greater than 1. Non-regression test for #16151.
@@ -878,7 +878,7 @@ def test_precomputed_connectivity_affinity_with_2_connected_components():
 
     X_dist = pairwise_distances(X)
     clusterer_precomputed = AgglomerativeClustering(
-        affinity="precomputed", connectivity=connectivity_matrix, linkage="complete"
+        metric="precomputed", connectivity=connectivity_matrix, linkage="complete"
     )
     msg = "Completing it to avoid stopping the tree early"
     with pytest.warns(UserWarning, match=msg):
@@ -894,93 +894,12 @@ def test_precomputed_connectivity_affinity_with_2_connected_components():
     assert_array_equal(clusterer.children_, clusterer_precomputed.children_)
 
 
-# TODO(1.4): Remove
-def test_deprecate_affinity():
-    rng = np.random.RandomState(42)
-    X = rng.randn(50, 10)
-
-    af = AgglomerativeClustering(affinity="euclidean")
-    msg = (
-        "Attribute `affinity` was deprecated in version 1.2 and will be removed in 1.4."
-        " Use `metric` instead"
-    )
-    with pytest.warns(FutureWarning, match=msg):
-        af.fit(X)
-    with pytest.warns(FutureWarning, match=msg):
-        af.fit_predict(X)
-
-    af = AgglomerativeClustering(metric="euclidean", affinity="euclidean")
-    msg = "Both `affinity` and `metric` attributes were set. Attribute"
-    with pytest.raises(ValueError, match=msg):
-        af.fit(X)
-    with pytest.raises(ValueError, match=msg):
-        af.fit_predict(X)
-
-
-def test_ward_corr_invalid_parameters():
-    rng = np.random.RandomState(0)
-    mask = np.ones([10, 10], dtype=bool)
-    # Avoiding a mask with only 'True' entries
-    mask[4:7, 4:7] = 0
-    X = rng.randn(50, 100)
-    connectivity = grid_to_graph(*mask.shape)
-
-    with pytest.raises(ValueError, match="Exactly one of "):
-        AgglomerativeClustering(
-            linkage="ward_corr",
-            n_clusters=None,
-            min_corr=None,
-            distance_threshold=None,
-            connectivity=connectivity,
-        ).fit(X)
-
-    with pytest.raises(
-        ValueError, match="The 'min_corr' parameter of AgglomerativeClustering "
-    ):
-        AgglomerativeClustering(
-            linkage="ward_corr",
-            n_clusters=None,
-            min_corr=-2,
-            distance_threshold=None,
-            connectivity=connectivity,
-        ).fit(X)
-
-    with pytest.raises(
-        ValueError, match="min_corr is only valid for linkage = 'ward_corr'."
-    ):
-        AgglomerativeClustering(
-            linkage="ward",
-            n_clusters=None,
-            min_corr=0.5,
-            distance_threshold=None,
-            connectivity=connectivity,
-        ).fit(X)
-
-    with pytest.raises(ValueError, match="connectivity must be specified"):
-        AgglomerativeClustering(
-            linkage="ward_corr", n_clusters=None, min_corr=0.5, distance_threshold=None
-        ).fit(X)
-
-
-def test_ward_corr_decreasing_n_clusts():
-    n_samples = 1500
-    noise = 0.05
-    X, _ = make_swiss_roll(n_samples, noise=noise, random_state=30)
-    X[:, 1] *= 0.5
-
-    connectivity = kneighbors_graph(X, n_neighbors=10, include_self=False)
-
-    min_corrs = [0.1, 0.5, 0.8]
-    n_clusts = []
-
-    for min_corr in min_corrs:
-        clust = AgglomerativeClustering(
-            linkage="ward_corr",
-            min_corr=min_corr,
-            n_clusters=None,
-            connectivity=connectivity,
-            compute_full_tree=True,
-        ).fit(X)
-        n_clusts.append(len(clust.labels_))
-
-    assert all(earlier >= later for earlier, later in zip(n_clusts, n_clusts[1:]))
+# TODO(1.6): remove in 1.6
+@pytest.mark.parametrize(
+    "Agglomeration", [AgglomerativeClustering, FeatureAgglomeration]
+)
+def test_deprecation_warning_metric_None(Agglomeration):
+    X = np.array([[1, 2], [1, 4], [1, 0], [4, 2], [4, 4], [4, 0]])
+    warn_msg = "`metric=None` is deprecated in version 1.4 and will be removed"
+    with pytest.warns(FutureWarning, match=warn_msg):
+        Agglomeration(metric=None).fit(X)
