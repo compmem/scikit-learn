@@ -954,6 +954,7 @@ def test_ward_corr_min_corrs():
     rng = np.random.RandomState(0)
     X = rng.randn(100, 10)
     connectivity = np.ones((100, 100))
+    prev_n_clust = 0
 
     for min_corr in [-1, 0, 0.3, 0.5, 1]:
         clust = AgglomerativeClustering(
@@ -965,6 +966,11 @@ def test_ward_corr_min_corrs():
         ).fit(X)
 
         centroids = np.zeros((len(np.unique(clust.labels_)), 10))
+
+        # number of clusters should be monotonically increasing as
+        # we increase thresh
+        assert len(np.unique(clust.labels_)) > prev_n_clust
+        prev_n_clust = len(np.unique(clust.labels_))
 
         for i, label in enumerate(np.unique(clust.labels_)):
             centroids[i] = np.mean(X[clust.labels_ == label], axis=0)

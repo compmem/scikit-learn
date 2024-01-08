@@ -1224,13 +1224,15 @@ class AgglomerativeClustering(ClusterMixin, BaseEstimator):
                 np.count_nonzero(self.distances_ >= distance_threshold) + 1
             )
         elif self.min_corr is not None:
-            self.n_clusters_ = 1
-
-            for dist in reversed(self.distances_):
-                if dist != np.Inf:
+            self.n_clusters_ = len(self.distances_) + 1
+            for dist in self.distances_:
+                # if we were greater than thresh and didn't merge, stop
+                if dist == np.Inf:
                     break
                 else:
-                    self.n_clusters_ += 1
+                    # if we merged, the number of clusters must be one fewer than
+                    # we thought
+                    self.n_clusters_ -= 1
 
         else:  # n_clusters is used
             self.n_clusters_ = self.n_clusters
