@@ -423,7 +423,7 @@ def _ward_corr_tree(
         X, connectivity, affinity="euclidean"
     )
     if min_corr is None:
-        min_corr = -2
+        min_corr = -1
 
     if n_clusters is None:
         n_nodes = 2 * n_samples - 1

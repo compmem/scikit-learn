@@ -91,7 +91,7 @@ def compute_ward_corr(
         d = (1 - corr)
 
         if corr > min_corr:
-            res[i] = (log((1 + d) / (1 - d)) / 2) * n
+            res[i] = d * n # (log((1 + d) / (1 - d)) / 2) * n
         else:
             # handled by outer selection threshold
             res[i] = INFINITY
